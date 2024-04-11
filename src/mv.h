@@ -1,6 +1,7 @@
 #ifndef MV_H_
 #define MV_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define MEM_SIZE 16384 // en bytes

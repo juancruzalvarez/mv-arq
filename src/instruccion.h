@@ -19,7 +19,8 @@ typedef enum {
   X,        // Tercer y cuarto byte.
 } TipoReg;
 
-typedef struct {
+typedef struct Instruccion{
+  int cod_op; 
   int operacion;
   TipoOperando tipo_a;
   TipoOperando tipo_b;
@@ -29,7 +30,5 @@ typedef struct {
 
 Instruccion LeerProximaInstruccion(MV* mv) ;
 void EjecutarInstruccion(MV* mv, Instruccion instruccion);
-
-
 
 #endif // !INSTRUCCION_H_
