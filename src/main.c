@@ -35,12 +35,29 @@ int main(int argc, char** argv) {
 
   if(!InicializarMV(file, &mv))
     return -1;
-
-  while(mv.ejecutando) {
+  
+  while(mv.ejecutando == 0) {
     Instruccion instr = LeerProximaInstruccion(&mv);
-    if(d)
-      Debug(mv, instr);
+
     EjecutarInstruccion(&mv, instr);
+    if(d && mv.ejecutando == 0)
+    Debug(mv, instr);
+  }
+
+  switch(mv.ejecutando){
+    case 1:
+      printf("No se admite la division por 0");
+      break;
+    case 2:
+      printf("Fallo de Segmento");
+      break;
+    case 3:
+      printf("Instrucci�n invalida");
+      break;
+    case -1:
+      printf("STOP");   //EJECUCION TERMINADA CORRECTAMENTE
+      break;
+
   }
   printf("final");
   
@@ -121,7 +138,7 @@ bool InicializarMV(FILE* file, MV* mv) {
 
   fread(&mv->mem[mv->regs[CS]], sizeof(uint8_t), mv->segmentos[CODE].size, file);
 
-  mv->ejecutando = true;
+  mv->ejecutando = 0;
 
   return true;
 };
@@ -171,7 +188,11 @@ void MostrarOp(MV mv, TipoOperando tipo, int operando){
     break;
   }
   case MEMORIA: {
-   printf("[ ]"); 
+
+    int cod_reg = (operando&0xF0000) >> 16;
+    int offset = operando&0xFFFF;
+    char signo = offset >= 0 ? '+' : '-';
+    printf("[%s %c %d]", nombre_regs[cod_reg], signo, offset); 
     break;
   }
   }

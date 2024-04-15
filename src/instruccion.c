@@ -3,7 +3,7 @@
 #include "mv.h"
 #include <stdint.h>
 
-typedef void (*Operacion)(MV*, TipoOperando, TipoOperando, int, int); 
+typedef void (*Operacion)(MV*, TipoOperando, TipoOperando, int, int);
 
 void MOV (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
 void ADD (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
@@ -35,7 +35,7 @@ void STOP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int 
 static Operacion operaciones[] = {
   MOV, ADD, SUB, SWAP, MUL, DIV, COMP, SHL, SHR, AND, OR, XOR, RND, NULL, NULL, NULL,
   SYS, JMP, JZ, JP, JN, JNZ, JNP, JNN, LDL, LDH, NOT, NULL, NULL, NULL, NULL,
-  STOP 
+  STOP
 };
 
 static int op_size[] = {
@@ -69,7 +69,11 @@ Instruccion LeerProximaInstruccion(MV* mv) {
 
 void EjecutarInstruccion(MV* mv, Instruccion instruccion) {
   int i = instruccion.operacion;
+  if((i >=0x00 && i<= 0x0C) || (i>=0x10 && i<=0x1A) || (i==0x1F))
   operaciones[i](mv, instruccion.tipo_a, instruccion.tipo_b, instruccion.operando_a, instruccion.operando_b);
+  else{
+    mv->ejecutando=3;
+  }
 };
 
 int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
@@ -80,13 +84,13 @@ int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
     return valor;
   }
   case X:{
-    return valor & 0xFFFF;
+    return ((int16_t)(valor & 0xFFFF));
   }
   case L:{
-    return valor & 0xFF;
+    return ((int8_t)(valor & 0xFF));
   }
   case H:{
-    return (valor & 0xFF00) >> 8;
+    return ((int8_t)((valor & 0xFF00) >> 8));
   }
 
   }
@@ -106,13 +110,15 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
   case REGISTRO: {
     // Falta extension de signo
     int reg = operando & 0xF;
-    int tam = (operando & 0x30) >> 4; 
+    int tam = (operando & 0x30) >> 4;
     return GetRegistro(mv, reg, tam);
   }
 
   case MEMORIA: {
     int reg = mv->regs[(operando&0xFFFF0000)>>16];
-    return *((int*)(&mv->mem[mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF)]));
+    int dir = mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF);
+
+    return *((int*)(&mv->mem[dir]));
   }
 
   }
@@ -127,12 +133,42 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
   case REGISTRO: {
     int reg = operando & 0xF;
     int tam = (operando & 0x30) >> 4;
+    switch(tam) {
+      case 0: {
+        //reg entero
+        mv->regs[reg] = valor;
+        break;
+      }
+      case 1: {
+       //4to byte 
+       int8_t aux = (int8_t) valor; 
+       int8_t* registro = (uint8_t*)&mv->regs[reg];
+       registro[3] = aux;
+       break;
+      }
+      case 2: {
+       //3er byte
+       int8_t aux = (int8_t) valor; 
+       int8_t* registro = (int8_t*)&mv->regs[reg];
+       registro[2] = aux;
+       break;
+      }
+      case 3: {
+       //dos ultimos bytes
+       int16_t aux = (int16_t) valor; 
+       int16_t* registro = (int16_t*)&mv->regs[reg];
+       registro[1] = aux;
+       break;
+      }
 
+    }
   }
 
   case MEMORIA: {
     int reg = mv->regs[(operando&0xFFFF0000)>>16];
-    *((int*)(&mv->mem[mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF)])) = valor;
+    int dir = mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF);
+
+    *((int*)(&mv->mem[dir])) = valor;
   }
 
   }
@@ -196,11 +232,15 @@ void MUL(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 void DIV(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
   int opb = GetValor(mv,tipo_b,operando_b);
+  if (opb==0)
+    mv->ejecutando=1;
+  else{
   int value = opa / opb;
   int resto = opa % opb;
   SetValor(mv,tipo_a, operando_a,value);
   mv->regs[AC] = resto;
   ActualizaCC(value,mv);
+  }
 }
 
 void COMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
@@ -400,6 +440,5 @@ void NOT(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 }
 
 void STOP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  mv->ejecutando = false;
+  mv->ejecutando = -1;  //se termina la ejecucion pero sin ningun error
 }
-

@@ -39,7 +39,7 @@ typedef struct {
   Segmento segmentos[8];
   uint32_t regs[16];
   uint8_t* mem; 
-  bool ejecutando;
+  int ejecutando;
 } MV;
 
 

@@ -31,4 +31,7 @@ typedef struct Instruccion{
 Instruccion LeerProximaInstruccion(MV* mv) ;
 void EjecutarInstruccion(MV* mv, Instruccion instruccion);
 
+int GetRegistro(MV* mv, Registros reg, TipoReg tipo);
+int GetValor(MV* mv, TipoOperando tipo, int operando);
+void SetValor(MV* mv, TipoOperando tipo, int operando, int valor);
 #endif // !INSTRUCCION_H_
