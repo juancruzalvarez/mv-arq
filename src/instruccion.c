@@ -58,19 +58,21 @@ Instruccion LeerProximaInstruccion(MV* mv) {
     ret.operando_b |= mv->mem[mv->regs[IP]++];
     ret.operando_b <<= 8;
   }
-  ret.operando_b >>=8;
+  if(ret.tipo_b != NINGUNO)
+    ret.operando_b >>=8;
   for(int i = 0; i < op_size[ret.tipo_a]; i++) {
     ret.operando_a |= mv->mem[mv->regs[IP]++];
     ret.operando_a <<= 8;
   }
-  ret.operando_a >>=8;
+  if(ret.tipo_a != NINGUNO)
+    ret.operando_a >>=8;
   return ret;
 };
 
 void EjecutarInstruccion(MV* mv, Instruccion instruccion) {
   int i = instruccion.operacion;
   if((i >=0x00 && i<= 0x0C) || (i>=0x10 && i<=0x1A) || (i==0x1F))
-  operaciones[i](mv, instruccion.tipo_a, instruccion.tipo_b, instruccion.operando_a, instruccion.operando_b);
+    operaciones[i](mv, instruccion.tipo_a, instruccion.tipo_b, instruccion.operando_a, instruccion.operando_b);
   else{
     mv->ejecutando=3;
   }
@@ -108,7 +110,6 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
   case INMEDIATO: return operando;
 
   case REGISTRO: {
-    // Falta extension de signo
     int reg = operando & 0xF;
     int tam = (operando & 0x30) >> 4;
     return GetRegistro(mv, reg, tam);
@@ -128,6 +129,7 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
 // Si el tipo es memoria, pone valor en el lugar de memoria apuntado por operando,
 // y si el tipo es registro, pone valor en el registro que especifica el operando.
 void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
+  //printf("set valor: %d en: %x de tipo: %x", valor, operando, tipo);
   switch (tipo)
   {
   case REGISTRO: {
@@ -140,35 +142,44 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
         break;
       }
       case 1: {
-       //4to byte 
+       //4to byte
+       int ant = mv->regs[reg];
        int8_t aux = (int8_t) valor; 
-       int8_t* registro = (uint8_t*)&mv->regs[reg];
-       registro[3] = aux;
+       int8_t* registro = (int8_t*)&mv->regs[reg];
+       registro[0] = aux;
        break;
       }
       case 2: {
        //3er byte
+       int ant = mv->regs[reg];
        int8_t aux = (int8_t) valor; 
        int8_t* registro = (int8_t*)&mv->regs[reg];
-       registro[2] = aux;
+       registro[1] = aux;
        break;
       }
       case 3: {
        //dos ultimos bytes
        int16_t aux = (int16_t) valor; 
        int16_t* registro = (int16_t*)&mv->regs[reg];
-       registro[1] = aux;
+       registro[0] = aux;
        break;
       }
 
     }
+    break;
   }
 
   case MEMORIA: {
     int reg = mv->regs[(operando&0xFFFF0000)>>16];
     int dir = mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF);
-
+    Segmento seg = mv->segmentos[(reg&0x00FF0000)>>16];
+    if(!(dir >= seg.base && dir < seg.base + seg.size )) {
+      mv->ejecutando = 2;
+      return;
+    }
+    //printf("valor setteado en dir: %d", dir);
     *((int*)(&mv->mem[dir])) = valor;
+    break;
   }
 
   }
@@ -296,146 +307,135 @@ void RND(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 }
 
 void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-int value,aux,cl_val,ch_val,mode,i=0,dir;
-    //int cod_Seg,ofset;
-    value = GetValor(mv, tipo_a, operando_a);
-    mode = mv->regs[EAX];  //modo almacenado en AL
-    mode = mode & 0x00FF;
-
-
-    dir = mv->regs[EDX];
-
-    aux = mv->regs[EDX];
-    cl_val = aux & 0x000000FF;          // cantidad de celdas/ cantidad de veces que se va a escribir x teclado
-    ch_val = (aux & 0X0000FF00) >> 8;   // tamamnio de las celdas
-
-    if(cl_val !=0 && ch_val != 0){
-        switch(value){
-            case 1:
-                while(i<cl_val){
-                    switch(mode){
-                        case 1:
-                            scanf("%d",&aux);
-                            break;
-                        case 2:
-                            scanf("%c",&aux);
-                            break;
-                        case 4:
-                            scanf("%o",&aux);
-                            break;
-                        case 8:
-                            scanf("%x",&aux);
-                            break;
-                    }
-                    for (int j = 0; j < ch_val; j++) {
-                        mv->mem[dir + ch_val - j - 1] = (aux >> ((ch_val - j - 1) * 8)) & 0xFF;
-                    }
-
-                    //if(aux<0) // ver
-                    //    memoria[dir] |= 0xFFFFFFFF; // Amtes tenia 0x80
-                    dir += ch_val;
-                    i++;
-                }
-                break;
-            case 2:
-                printf("i:%d Cval:%d",i,cl_val);
-                while(i<cl_val){
-                    for(int j = 0;j < ch_val; j++){
-                        aux = aux << 8;
-                        aux |= mv->mem[dir + j];
-                    }
-        printf("[%04X]",dir);
-        if(mode & 0x01)
-          printf("# %d\t",aux);
-        if(mode & 0x02){
-          if(isascii(aux)){
-            printf(" ' %c\t ' ",aux);
-          }else{
-            printf("' . '");
-          }
-        }
-        if(mode & 0x04)
-          printf("@ %o\t",aux);
-
-        if(mode &0x08)
-          printf("% %x\t",aux);
-
-        printf("\n");
-        dir += ch_val;
-        i++;
+  int valor = GetValor(mv, tipo_b, operando_b);
+  int puntero = mv->regs[EDX];
+  int direccion = mv->segmentos[(puntero&0x00FF0000)>>16].base + (puntero&0xFFFF);
+  int modo = GetRegistro(mv, EAX, L);  
+  int cantidad = GetRegistro(mv, ECX, L);
+  int tam = GetRegistro(mv, ECX, H);
+  switch(valor) {
+  case 2: {
+    for(int i = 0; i < cantidad; i++) {
+      printf("[%04X]", direccion);
+      int aux = 0;
+      for(int j = 0; j < tam; j++) {
+        aux |= mv->mem[direccion++];
+        aux <<= 8;
       }
-      break;
-
+      aux>>=8;
+      switch(modo) {
+        case 1:{
+          printf("%d\n", aux);
+          break;
+        }
+        case 2: {
+          if((aux & ~0x7f) != 0) {
+            printf(".\n");
+          }else{
+            printf("%c\n", aux);
+          }
+          break;
+        }
+        case 4:{
+          printf("%o\n", aux);
+          break;
+        }
+        case 8: {
+          printf("%x\n", aux);
+          break;
+        }
+      }
     }
+    break;
+  }
+
+  case 1:{
+    int aux;
+    for(int i = 0; i < cantidad; i++) {
+      printf("[%04X]", direccion);
+      switch(modo) {
+        case 1:{
+          scanf("%d", &aux);
+          break;
+        }
+        case 2: {
+          scanf("%c", &aux);
+          break;
+        }
+        case 4:{
+          scanf("%o", &aux);
+          break;
+        }
+        case 8: {
+          printf("%x", &aux);
+          break;
+        }
+      }
+      char* aux_ptr = (char*)&aux;
+      for(int j = 0; j < tam; j++) {
+        mv->mem[direccion+tam-j-1] = aux_ptr[j];
+      }
+      direccion += tam;
+      }
+    break;
+  }
   }
 }
 
 void JMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int opa = GetValor(mv, tipo_a, operando_a);
-  mv->regs[IP] = opa;
+  int opb = GetValor(mv, tipo_b, operando_b);
+  mv->regs[IP] = opb;
 }
 
 void JZ(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
 
     if (BitZ(mv->regs[CC])) // bit cero en 1
-        mv->regs[IP] = GetValor(mv, tipo_a, operando_a);
-    else
-        mv->regs[IP]++;
+        mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   if (!BitN(mv->regs[CC]) && !BitZ(mv->regs[CC])) // bit signo en 0 y bit cero en 0
-    mv->regs[IP] = GetValor(mv, tipo_a, operando_a);
-  else
-    mv->regs[IP]++;
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JN(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   if (BitN(mv->regs[CC])) // bit signo en 1
-    mv->regs[CC] = GetValor(mv, tipo_a, operando_a);
-  else
-    mv->regs[IP]++;
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JNZ(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
     if (!BitZ(mv->regs[CC])) // bit cero en 0
-      mv->regs[IP] = GetValor(mv, tipo_a, operando_a);
-    else
-      mv->regs[IP]++;
+      mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JNP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   if (BitN(mv->regs[CC]) || BitZ(mv->regs[CC])) // no positivo
-    mv->regs[IP] = GetValor(mv, tipo_a, operando_a);
-  else
-    mv->regs[IP]++;
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JNN(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   if (!BitN(mv->regs[CC]) || BitZ(mv->regs[CC])) // no negativo
-    mv->regs[IP] = GetValor(mv, tipo_a, operando_a);
-  else
-    mv->regs[IP]++;
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void LDL(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int opa = GetValor(mv, tipo_a, operando_a);
+  int opa = GetValor(mv, tipo_b, operando_b);
   mv->regs[AC] &= 0xFFFF0000;
   opa &= 0x0000FFFF;
   mv->regs[AC] |= opa;
 }
 
 void LDH(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int opa = GetValor(mv, tipo_a, operando_a);
+  int opa = GetValor(mv, tipo_b, operando_b);
   mv->regs[AC] &= 0x0000FFFF;
   opa = opa << 16;
   mv->regs[AC] |= opa;
 }
 
 void NOT(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int opa = GetValor(mv, tipo_a, operando_a);
+  int opa = GetValor(mv, tipo_b, operando_b);
   int res = ~opa;
-  SetValor(mv,tipo_a,operando_a,res);
+  SetValor(mv,tipo_b,operando_b,res);
   ActualizaCC(res,mv);
 }
 

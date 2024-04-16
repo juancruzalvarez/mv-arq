@@ -35,13 +35,12 @@ int main(int argc, char** argv) {
 
   if(!InicializarMV(file, &mv))
     return -1;
-  
+
   while(mv.ejecutando == 0) {
     Instruccion instr = LeerProximaInstruccion(&mv);
-
-    EjecutarInstruccion(&mv, instr);
     if(d && mv.ejecutando == 0)
-    Debug(mv, instr);
+      Debug(mv, instr);
+    EjecutarInstruccion(&mv, instr);
   }
 
   switch(mv.ejecutando){
@@ -130,13 +129,13 @@ bool InicializarMV(FILE* file, MV* mv) {
   for(int i = 0; i < 16; i++) {
     mv->regs[i] = 0;
   }
-  mv->regs[CS] = mv->segmentos[CODE].base;
-  mv->regs[DS] = mv->segmentos[DATA].base;
-  mv->regs[IP] = mv->regs[CS];
+  mv->regs[CS] = 0x0;
+  mv->regs[DS] = 0x00010000;
+  mv->regs[IP] = 0x0;
   
   mv->mem = (uint8_t*) malloc(sizeof(uint8_t) * MEM_SIZE);
 
-  fread(&mv->mem[mv->regs[CS]], sizeof(uint8_t), mv->segmentos[CODE].size, file);
+  fread(&mv->mem[0], sizeof(uint8_t), mv->segmentos[CODE].size, file);
 
   mv->ejecutando = 0;
 
