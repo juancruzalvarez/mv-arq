@@ -156,12 +156,6 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
     n2[1] = n1[2];
     n2[2] = n1[1]; 
     n2[3] = n1[0];
-    printf("\nGet dir: %d, valor:%d\n", dir, res);
-    printf("In Mem: \n");
-    for(int t = 0; t < 4; t++) {
-      printf("%x ", mv->mem[dir+t]);
-    }
-    printf("\n");
     return res;
   }
 
@@ -300,7 +294,6 @@ void DIV(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 void COMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
   int opb = GetValor(mv, tipo_b, operando_b);
-  printf("\n%d comp %d\n", opa, opb);
   ActualizaCC(opa-opb, mv);
 }
 
@@ -357,7 +350,6 @@ void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
   modo = modo & 0x0F;
   int cantidad = GetRegistro(mv, ECX, L);
   int tam = GetRegistro(mv, ECX, H);
-  printf("\nCantidad: %d, Tamaño: %d.\n", cantidad, tam);
   switch(valor) {
   case 2: {
     for(int i = 0; i < cantidad; i++) {
@@ -370,20 +362,21 @@ void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
       aux>>=8;
 
       if(modo & 0x01)
-        printf("# %d\t",aux);
+        printf("# %d ", aux);
       if(modo & 0x02){
        if((aux & ~0x7f) != 0) {
             printf(".\n");
           }else{
-            printf("%c\n", aux);
+            printf("%c ", aux);
           }
 
         }
        if(modo & 0x04)
-         printf("@ %o\t",aux);
+         printf("@ %o ",aux);
        if(modo & 0x08)
-        printf("% %x\t",aux);
+        printf("0x%x ",aux);
 
+      printf("\n");
     }
     break;
   }
