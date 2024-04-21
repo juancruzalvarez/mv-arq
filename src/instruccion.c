@@ -47,6 +47,11 @@ static int op_size[] = {
 
 Instruccion LeerProximaInstruccion(MV* mv) {
   Instruccion ret;
+  int dir = mv->regs[IP];
+  if(dir < mv->segmentos[CODE].base || dir >= mv->segmentos[CODE].base + mv->segmentos[CODE].size) {
+    mv->estado = ERR_SEGMENTACION;
+    return ret;
+  }
   uint8_t instruccion = mv->mem[mv->regs[IP]++];
   ret.cod_op = instruccion;
   ret.operacion = instruccion & 0x1F;
@@ -74,7 +79,7 @@ void EjecutarInstruccion(MV* mv, Instruccion instruccion) {
   if((i >=0x00 && i<= 0x0C) || (i>=0x10 && i<=0x1A) || (i==0x1F))
     operaciones[i](mv, instruccion.tipo_a, instruccion.tipo_b, instruccion.operando_a, instruccion.operando_b);
   else{
-    mv->ejecutando=3;
+    mv->estado = ERR_INSTRUCCION_INVALIDA;
   }
 };
 
@@ -86,7 +91,7 @@ int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
     return valor;
   }
   case X:{
-    int aux = valor &0xFFFF;
+    int aux = valor&0xFFFF;
     int es_negativo = aux&0x8000;
     return es_negativo? (aux|0xFFFF0000) : aux;
   }
@@ -102,6 +107,18 @@ int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
   }
 
   }
+}
+
+//Devuelve la direccion fisica apuntada.
+int ResolverDireccion(MV* mv, int puntero, int offset) {
+  int cod_seg = (puntero&0xFFFF0000) >> 16;
+  int offset_puntero = puntero&0xFFFF;
+  Segmento seg = mv->segmentos[cod_seg]; 
+  if(offset_puntero + offset >= seg.size) {
+    mv->estado = ERR_SEGMENTACION;
+    return 0;
+  }
+  return seg.base + offset_puntero + offset;
 }
 
 // Devuelve el valor real de un operando.
@@ -125,9 +142,10 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
   }
 
   case MEMORIA: {
-    int reg = mv->regs[(operando&0xFFFF0000)>>16];
-    int dir = mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF);
-
+    int cod_reg = (operando&0xFFFF0000) >> 16;
+    int offset = operando&0xFFFF;
+    int err = 0;
+    int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
     return *((int*)(&mv->mem[dir]));
   }
 
@@ -174,13 +192,10 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
   }
 
   case MEMORIA: {
-    int reg = mv->regs[(operando&0xFFFF0000)>>16];
-    int dir = mv->segmentos[(reg&0x00FF0000)>>16].base + (operando&0xFFFF) + (reg&0xFFFF);
-    Segmento seg = mv->segmentos[(reg&0x00FF0000)>>16];
-    if(!(dir >= seg.base && dir < seg.base + seg.size )) {
-      mv->ejecutando = 2;
-      return;
-    }
+    int cod_reg = (operando&0xFFFF0000) >> 16;
+    int offset = operando&0xFFFF;
+    int err = 0;
+    int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
     *((int*)(&mv->mem[dir])) = valor;
     break;
   }
@@ -190,12 +205,12 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
 
 //Actualiza el valor del registro CC dependiendo de la ultima operacion
 void ActualizaCC(int value, MV* mv){
-  if(value>0){
-    mv->regs[CC] = 0x00000000;
-  }else if (value < 0){
-    mv->regs[CC] = 0x80000000;
-  }else{
-    mv->regs[CC] = 0x40000000;
+  mv->regs[CC] = 0;
+  if(value < 0) {
+    mv->regs[CC] |= 0x80000000;
+  }
+  if(value == 0) {
+    mv->regs[CC] |= 0x40000000;
   }
 }
 
@@ -206,7 +221,7 @@ int BitN(int cc)
 
 int BitZ(int cc)
 {
-    return (cc & 0x1);
+    return (cc & 0x40000000);
 }
 
 void MOV(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b) {
@@ -217,103 +232,103 @@ void ADD(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
   int suma = GetValor(mv, tipo_a, operando_a);
   suma += GetValor(mv, tipo_b, operando_b);
   SetValor(mv, tipo_a, operando_a, suma);
-  ActualizaCC(suma,mv);
+  ActualizaCC(suma, mv);
 };
 
 void SUB(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b) {
-  int resta = GetValor(mv,tipo_a,operando_a);
-  resta -= GetValor(mv,tipo_b,operando_b);
+  int resta = GetValor(mv, tipo_a, operando_a);
+  resta -= GetValor(mv, tipo_b, operando_b);
   SetValor(mv, tipo_a, operando_a, resta);
-  ActualizaCC(resta,mv);
+  ActualizaCC(resta, mv);
 };
 
 
 void SWAP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int auxA = GetValor(mv, tipo_a,operando_a);
-  int auxB = GetValor(mv, tipo_b,operando_b);
-  SetValor(mv,tipo_a,operando_a,auxB);
-  SetValor(mv,tipo_b,operando_b,auxA);
+  int auxA = GetValor(mv, tipo_a, operando_a);
+  int auxB = GetValor(mv, tipo_b, operando_b);
+  SetValor(mv, tipo_a, operando_a, auxB);
+  SetValor(mv, tipo_b, operando_b, auxA);
 }
 
 
 void MUL(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int aux = GetValor(mv, tipo_a,operando_a);
-  aux *= GetValor(mv,tipo_b,operando_b);
-  SetValor(mv,tipo_a,operando_a,aux);
-  ActualizaCC(aux,mv);
+  int aux = GetValor(mv, tipo_a, operando_a);
+  aux *= GetValor(mv, tipo_b, operando_b);
+  SetValor(mv, tipo_a, operando_a, aux);
+  ActualizaCC(aux, mv);
 }
 
 void DIV(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
-  if (opb==0)
-    mv->ejecutando=1;
+  int opb = GetValor(mv, tipo_b, operando_b);
+  if (opb == 0)
+    mv->estado = ERR_DIV_CERO;
   else{
-  int value = opa / opb;
-  int resto = opa % opb;
-  SetValor(mv,tipo_a, operando_a,value);
-  mv->regs[AC] = resto;
-  ActualizaCC(value,mv);
+    int value = opa / opb;
+    int resto = opa % opb;
+    SetValor(mv, tipo_a, operando_a, value);
+    mv->regs[AC] = resto;
+    ActualizaCC(value, mv);
   }
 }
 
 void COMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
-  ActualizaCC(opa-opb,mv);
+  int opb = GetValor(mv, tipo_b, operando_b);
+  ActualizaCC(opa-opb, mv);
 }
 
 void SHL(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
+  int opb = GetValor(mv, tipo_b, operando_b);
   int res = opa << opb;
-  SetValor(mv,tipo_a,operando_a,res);
+  SetValor(mv, tipo_a, operando_a, res);
   ActualizaCC(res,mv);
 }
 
 void SHR(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
-  int res = opa >>  opb;
-  SetValor(mv,tipo_a,operando_a,res);
-  ActualizaCC(res,mv);
+  int opb = GetValor(mv, tipo_b, operando_b);
+  int res = opa >> opb;
+  SetValor(mv, tipo_a, operando_a, res);
+  ActualizaCC(res, mv);
 }
 
 void AND(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
+  int opb = GetValor(mv, tipo_b, operando_b);
   int res = opa & opb;
-  SetValor(mv,tipo_a,operando_a,res);
-  ActualizaCC(res,mv);
+  SetValor(mv, tipo_a, operando_a, res);
+  ActualizaCC(res, mv);
 }
 
 void OR(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
+  int opb = GetValor(mv, tipo_b, operando_b);
   int res = opa | opb;
-  SetValor(mv,tipo_a,operando_a,res);
-  ActualizaCC(res,mv);
+  SetValor(mv, tipo_a, operando_a, res);
+  ActualizaCC(res, mv);
 }
 
 void XOR(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
-  int opb = GetValor(mv,tipo_b,operando_b);
+  int opb = GetValor(mv, tipo_b, operando_b);
   int res = opa ^ opb;
-  SetValor(mv,tipo_a,operando_a,res);
-  ActualizaCC(res,mv);
+  SetValor(mv, tipo_a, operando_a, res);
+  ActualizaCC(res, mv);
 }
 
 void RND(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  int opb = GetValor(mv,tipo_b,operando_b);
-  int res = rand() % (opb +1);
-  SetValor(mv,tipo_a,operando_a,res);
+  int opb = GetValor(mv, tipo_b, operando_b);
+  int res = rand() % (opb + 1);
+  SetValor(mv, tipo_a, operando_a, res);
 }
-
 void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int valor = GetValor(mv, tipo_b, operando_b);
   int puntero = mv->regs[EDX];
   int direccion = mv->segmentos[(puntero&0x00FF0000)>>16].base + (puntero&0xFFFF);
-  int modo = GetRegistro(mv, EAX, L);  
+  int modo = GetRegistro(mv, EAX, L);
+  modo = modo & 0x0F;
   int cantidad = GetRegistro(mv, ECX, L);
   int tam = GetRegistro(mv, ECX, H);
   switch(valor) {
@@ -326,28 +341,22 @@ void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
         aux <<= 8;
       }
       aux>>=8;
-      switch(modo) {
-        case 1:{
-          printf("%d\n", aux);
-          break;
-        }
-        case 2: {
-          if((aux & ~0x7f) != 0) {
+
+      if(modo & 0x01)
+        printf("# %d\t",aux);
+      if(modo & 0x02){
+       if((aux & ~0x7f) != 0) {
             printf(".\n");
           }else{
             printf("%c\n", aux);
           }
-          break;
+
         }
-        case 4:{
-          printf("%o\n", aux);
-          break;
-        }
-        case 8: {
-          printf("%x\n", aux);
-          break;
-        }
-      }
+       if(modo & 0x04)
+         printf("@ %o\t",aux);
+       if(modo & 0x08)
+        printf("% %x\t",aux);
+
     }
     break;
   }
@@ -423,24 +432,24 @@ void JNN(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 void LDL(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_b, operando_b);
   mv->regs[AC] &= 0xFFFF0000;
-  opa &= 0x0000FFFF;
+  opa &= 0xFFFF;
   mv->regs[AC] |= opa;
 }
 
 void LDH(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_b, operando_b);
-  mv->regs[AC] &= 0x0000FFFF;
-  opa = opa << 16;
+  mv->regs[AC] &= 0xFFFF;
+  opa = (opa&0xFFFF) << 16;
   mv->regs[AC] |= opa;
 }
 
 void NOT(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_b, operando_b);
   int res = ~opa;
-  SetValor(mv,tipo_b,operando_b,res);
-  ActualizaCC(res,mv);
+  SetValor(mv, tipo_b, operando_b, res);
+  ActualizaCC(res, mv);
 }
 
 void STOP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-  mv->ejecutando = -1;  //se termina la ejecucion pero sin ningun error
+  mv->estado = FINALIZADO;  //se termina la ejecucion pero sin ningun error
 }
