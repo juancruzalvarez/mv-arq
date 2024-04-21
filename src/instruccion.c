@@ -86,13 +86,19 @@ int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
     return valor;
   }
   case X:{
-    return ((int16_t)(valor & 0xFFFF));
+    int aux = valor &0xFFFF;
+    int es_negativo = aux&0x8000;
+    return es_negativo? (aux|0xFFFF0000) : aux;
   }
   case L:{
-    return ((int8_t)(valor & 0xFF));
+    int aux = valor&0xFF;
+    int es_negativo = aux&0x80;
+    return es_negativo? (aux|0xFFFFFF00) : aux;
   }
   case H:{
-    return ((int8_t)((valor & 0xFF00) >> 8));
+    int aux = (valor>>8)&0xFF;
+    int es_negativo = aux&0x80;
+    return es_negativo? (aux|0xFFFFFF00) : aux;
   }
 
   }
@@ -107,8 +113,11 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
   switch (tipo)
   {
   case NINGUNO: return 0;
-  case INMEDIATO: return operando;
-
+  case INMEDIATO: {
+    int aux = operando;
+    int es_negativo = operando&0x8000;
+    return es_negativo?(operando|0xFFFF0000) : operando;
+  }
   case REGISTRO: {
     int reg = operando & 0xF;
     int tam = (operando & 0x30) >> 4;
@@ -143,25 +152,20 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
       }
       case 1: {
        //4to byte
-       int ant = mv->regs[reg];
-       int8_t aux = (int8_t) valor; 
-       int8_t* registro = (int8_t*)&mv->regs[reg];
-       registro[0] = aux;
+       mv->regs[reg] &= 0xFFFFFF00;
+       mv->regs[reg] |= (valor&0xFF);
        break;
       }
       case 2: {
        //3er byte
-       int ant = mv->regs[reg];
-       int8_t aux = (int8_t) valor; 
-       int8_t* registro = (int8_t*)&mv->regs[reg];
-       registro[1] = aux;
+       mv->regs[reg] &= 0xFFFF00FF;
+       mv->regs[reg] |= ((valor&0xFF)<<8);
        break;
       }
       case 3: {
        //dos ultimos bytes
-       int16_t aux = (int16_t) valor; 
-       int16_t* registro = (int16_t*)&mv->regs[reg];
-       registro[0] = aux;
+       mv->regs[reg] &= 0xFFFF0000;
+       mv->regs[reg] |= (valor&0xFFFF);
        break;
       }
 
@@ -177,7 +181,6 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
       mv->ejecutando = 2;
       return;
     }
-    //printf("valor setteado en dir: %d", dir);
     *((int*)(&mv->mem[dir])) = valor;
     break;
   }
@@ -388,9 +391,8 @@ void JMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 }
 
 void JZ(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-
-    if (BitZ(mv->regs[CC])) // bit cero en 1
-        mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
+  if (BitZ(mv->regs[CC])) // bit cero en 1
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
@@ -404,8 +406,8 @@ void JN(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int op
 }
 
 void JNZ(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
-    if (!BitZ(mv->regs[CC])) // bit cero en 0
-      mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
+  if (!BitZ(mv->regs[CC])) // bit cero en 0
+    mv->regs[IP] = GetValor(mv, tipo_b, operando_b);
 }
 
 void JNP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
