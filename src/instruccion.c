@@ -48,8 +48,8 @@ static int op_size[] = {
 Instruccion LeerProximaInstruccion(MV* mv) {
   Instruccion ret;
   int dir = mv->regs[IP];
-  if(dir < mv->segmentos[CODE].base || dir >= mv->segmentos[CODE].base + mv->segmentos[CODE].size) {
-    mv->estado = ERR_SEGMENTACION;
+  if(dir >= mv->segmentos[CODE].base + mv->segmentos[CODE].size) {
+    mv->estado = FINALIZADO;
     return ret;
   }
   uint8_t instruccion = mv->mem[mv->regs[IP]++];
@@ -146,7 +146,23 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
     int offset = operando&0xFFFF;
     int err = 0;
     int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
-    return *((int*)(&mv->mem[dir]));
+    int v = *((int*)(&mv->mem[dir]));
+    int res;
+    uint8_t *n1, *n2;
+    n1 = (uint8_t *) &v;
+    n2 = (uint8_t *) &res;
+
+    n2[0] = n1[3];
+    n2[1] = n1[2];
+    n2[2] = n1[1]; 
+    n2[3] = n1[0];
+    printf("\nGet dir: %d, valor:%d\n", dir, res);
+    printf("In Mem: \n");
+    for(int t = 0; t < 4; t++) {
+      printf("%x ", mv->mem[dir+t]);
+    }
+    printf("\n");
+    return res;
   }
 
   }
@@ -196,7 +212,16 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
     int offset = operando&0xFFFF;
     int err = 0;
     int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
-    *((int*)(&mv->mem[dir])) = valor;
+    int res;
+    uint8_t *n1, *n2;
+    n1 = (uint8_t *) &valor;
+    n2 = (uint8_t *) &res;
+
+    n2[0] = n1[3];
+    n2[1] = n1[2];
+    n2[2] = n1[1]; 
+    n2[3] = n1[0];
+    *((int*)(&mv->mem[dir])) = res;
     break;
   }
 
@@ -275,6 +300,7 @@ void DIV(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
 void COMP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b){
   int opa = GetValor(mv, tipo_a, operando_a);
   int opb = GetValor(mv, tipo_b, operando_b);
+  printf("\n%d comp %d\n", opa, opb);
   ActualizaCC(opa-opb, mv);
 }
 
@@ -331,6 +357,7 @@ void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
   modo = modo & 0x0F;
   int cantidad = GetRegistro(mv, ECX, L);
   int tam = GetRegistro(mv, ECX, H);
+  printf("\nCantidad: %d, Tamaño: %d.\n", cantidad, tam);
   switch(valor) {
   case 2: {
     for(int i = 0; i < cantidad; i++) {

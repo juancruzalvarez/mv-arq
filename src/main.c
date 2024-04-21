@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
 
   while(mv.estado == EJECUTANDO) {
     Instruccion instr = LeerProximaInstruccion(&mv);
-    if(d) 
+    if(d && mv.estado == EJECUTANDO) 
       MostrarInstruccion(mv, instr);
     EjecutarInstruccion(&mv, instr);
   }
