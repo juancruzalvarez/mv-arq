@@ -1,7 +1,7 @@
 #include "disassembler.h"
 
 #include <stdlib.h>
-
+#include <string.h>
 static const char* nombre_instrucciones [] = {
   "MOV", "ADD", "SUB", "SWAP", "MUL", "DIV", "COMP", "SHL", "SHR", "AND", "OR", "XOR", "RND", NULL, NULL, NULL,
   "SYS", "JMP", "JZ", "JP", "JN", "JNZ", "JNP", "JNN", "LDL", "LDH", "NOT", NULL, NULL, NULL, NULL,

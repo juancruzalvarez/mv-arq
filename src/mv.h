@@ -3,17 +3,17 @@
 
 #include <stdint.h>
 
-#define MEM_SIZE 16384 // en bytes
+#define DEF_MEM_SIZE 16384 // en bytes
 
 typedef enum {
   CS = 0,
   DS,
-  __RES1,
-  __RES2,
-  __RES3,
+  ES,
+  SS,
+  KS,
   IP,
-  __RES4,
-  __RES5,
+  SP,
+  BP,
   CC,
   AC,
   EAX,
@@ -25,17 +25,15 @@ typedef enum {
 } Registros;
 
 typedef enum {
-  CODE,
-  DATA,
-} Segmentos;
-
-typedef enum {
-  EJECUTANDO, 
+  EJECUTANDO,
   FINALIZADO,
   ERR_SEGMENTACION,
   ERR_INSTRUCCION_INVALIDA,
   ERR_DIV_CERO,
-} Estado;
+  ERR_MEMORIA_INSUFICIENTE,
+  ERR_STACK_OVERFLOW,
+  ERR_STACK_UNDERFLOW,
+  } Estado;
 
 typedef struct {
   uint16_t base;
@@ -43,8 +41,8 @@ typedef struct {
 } Segmento;
 
 typedef struct {
-  Segmento segmentos[8];
   uint32_t regs[16];
+  Segmento segmentos [8];
   uint8_t* mem; 
   Estado estado;
 } MV;
