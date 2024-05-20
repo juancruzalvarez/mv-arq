@@ -45,6 +45,8 @@ typedef struct {
   Segmento segmentos [8];
   uint8_t* mem; 
   Estado estado;
+  char* path_vmi;
+  int tam_memoria;
 } MV;
 
 

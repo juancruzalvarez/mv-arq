@@ -45,10 +45,23 @@ static int op_size[] = {
   0,
 };
 
+
+GenerarVMI(MV* mv) {
+  FILE* archivo_vmi = fopen(mv->path_vmi, "wb");
+  fwrite("VMI24", 1, 5, archivo_vmi);
+  fwrite(2, 1, 1, archivo_vmi);
+  fwrite(&mv->tam_memoria, 2, 1, archivo_vmi);
+  fwrite(mv->regs, 4, 16, archivo_vmi);
+  fwrite(mv->segmentos, 4, 8, archivo_vmi);
+  fwrite(mv->mem, 1, mv->tam_memoria, archivo_vmi);
+  fclose(archivo_vmi);
+}
+
 Instruccion LeerProximaInstruccion(MV* mv) {
+  int code_seg_id = (mv->regs[CS] >> 16)&0xFFFF;
   Instruccion ret;
   int dir = mv->regs[IP];
-  if(dir >= mv->segmentos[CODE].base + mv->segmentos[CODE].size) {
+  if(dir >= mv->segmentos[code_seg_id].base + mv->segmentos[code_seg_id].size) {
     mv->estado = FINALIZADO;
     return ret;
   }
@@ -142,7 +155,8 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
   }
 
   case MEMORIA: {
-    int cod_reg = (operando&0xFFFF0000) >> 16;
+    int tam_celda = (operando&0xF0000000) >>30;
+    int cod_reg = (operando&0x00FF0000) >> 16;
     int offset = operando&0xFFFF;
     int err = 0;
     int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
@@ -151,11 +165,19 @@ int GetValor(MV* mv, TipoOperando tipo, int operando) {
     uint8_t *n1, *n2;
     n1 = (uint8_t *) &v;
     n2 = (uint8_t *) &res;
+    if(tam_celda == 0) {
+      n2[0] = n1[3];
+      n2[1] = n1[2];
+      n2[2] = n1[1];
+      n2[3] = n1[0];
+    }else if(tam_celda == 1) {
+      n2[0] = n1[1];
+      n2[1] = n1[0];
+      res &= 0xFFFF;
+    }else{
+      res &= 0xFF;
+    } 
 
-    n2[0] = n1[3];
-    n2[1] = n1[2];
-    n2[2] = n1[1];
-    n2[3] = n1[0];
     return res;
   }
 
@@ -202,7 +224,8 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
   }
 
   case MEMORIA: {
-    int cod_reg = (operando&0xFFFF0000) >> 16;
+    int tam_celda = (operando&0xF0000000) >>30;
+    int cod_reg = (operando&0x00FF0000) >> 16;
     int offset = operando&0xFFFF;
     int err = 0;
     int dir = ResolverDireccion(mv, mv->regs[cod_reg], offset);
@@ -210,11 +233,18 @@ void SetValor(MV* mv, TipoOperando tipo, int operando, int valor) {
     uint8_t *n1, *n2;
     n1 = (uint8_t *) &valor;
     n2 = (uint8_t *) &res;
-
-    n2[0] = n1[3];
-    n2[1] = n1[2];
-    n2[2] = n1[1];
-    n2[3] = n1[0];
+    if(tam_celda == 0) {
+      n2[0] = n1[3];
+      n2[1] = n1[2];
+      n2[2] = n1[1];
+      n2[3] = n1[0];
+    }else if(tam_celda == 1) {
+      n2[0] = n1[1];
+      n2[1] = n1[0];
+      res &= 0xFFFF;
+    }else{
+      res &= 0xFF;
+    } 
     *((int*)(&mv->mem[dir])) = res;
     break;
   }
@@ -444,10 +474,10 @@ void SYS(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
      }
      case 0xF:{
                 char linea='a';
-                if(archVMI!=NULL){  //si no se especifica archVMI se omite el breakpoint
+                if(mv->path_vmi != NULL){  //si no se especifica archVMI se omite el breakpoint
 
 
-                    generaVMI();//generar archivo imagen
+                    GenerarVMI(mv);//generar archivo imagen
 
                     while(linea != '\n' && linea != 'g' && linea != 'q'){
                         fflush(stdin);
@@ -544,11 +574,11 @@ void PUSH(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int 
     PUSH AX ;decrementa en uno el valor de SP y almacena en la posici�n apuntada por este registro
     el valor de AX.*/
     int aux,tamSS,value;
-    aux=mv->regs[SS] >>16 & 0x0000FFFF;
+    aux = mv->regs[SS] >>16 & 0x0000FFFF;
    // tamSS=TDS[aux]>>16 & 0x0000FFFF;
-    tamSS= mv->segmentos[aux] >>16 & 0x0000FFFF;
+    tamSS = mv->segmentos[aux].size;
     //registros[SP].valor=registros[SP].valor-4;
-    mv->regs[SP]-=4;
+    mv->regs[SP] -= 4;
     if(mv->regs[SP]<tamSS){
 
         mv->estado = ERR_STACK_OVERFLOW;
@@ -570,7 +600,7 @@ void POP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int o
     valor de SP se incrementa en 1.*/
     int aux,tamSS,value;
     aux=mv->regs[SS] >>16 & 0x0000FFFF;
-    tamSS=(mv->segmentos[aux]>>16 & 0x0000FFFF)+(mv->segmentos[aux] & 0x0000FFFF);
+    tamSS=(mv->segmentos[aux].size)+(mv->segmentos[aux].base);
 
     if(mv->regs[SP]+4>tamSS)
      mv->estado= ERR_STACK_UNDERFLOW;  //stack under
