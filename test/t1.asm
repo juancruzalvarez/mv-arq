@@ -1,3 +1,0 @@
-MOV EAX, -5
-MOV EX, -6
-STOP

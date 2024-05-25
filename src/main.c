@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "instruccion.h"
 #include "mv.h"
@@ -26,7 +27,7 @@ int main(int argc, char** argv) {
     return -1;
   
   if(vmx_path) {
-    FILE* file = fopen(vmi_path, "rb");
+    FILE* file = fopen(vmx_path, "rb");
     if(!file) {
       printf("No se pudo abrir el archivo %s. \n", vmx_path);
       return -1;
@@ -44,9 +45,10 @@ int main(int argc, char** argv) {
       return -1;
     }
   }
- 
+  printf("Inicializacion completada!\n");
   while(mv.estado == EJECUTANDO) {
     Instruccion instr = LeerProximaInstruccion(&mv);
+    printf("[%8x] %x | %x", mv.regs[IP], instr.cod_op, instr.operacion);
     if(d && mv.estado == EJECUTANDO) 
       MostrarInstruccion(mv, instr);
     EjecutarInstruccion(&mv, instr);
@@ -63,8 +65,18 @@ int main(int argc, char** argv) {
       printf("Error: Instruccion invalida.\n");
       break;
     case FINALIZADO:
-      printf("Ejecucion finalizada correctamente.\n"); 
+      printf("Ejecucion finalizada correctamente.\n");
       break;
+    case ERR_MEMORIA_INSUFICIENTE:
+      printf("Error: Memoria Insuficeinte.\n");
+      break;
+    case ERR_STACK_OVERFLOW:
+      printf("Error: Stack Overflow.\n");
+      break;
+    case ERR_STACK_UNDERFLOW:
+      printf("Error: Stack Underflow.\n");
+      break;
+
   }
   
   return 0;
@@ -166,22 +178,34 @@ bool InicializarMVX(FILE* file, MV* mv, int tam_memoria) {
     uint16_t tam_extra;
     uint16_t tam_stack;
     uint16_t tam_const;
-  } tamaños;
+  } tamanos;
 
-  fread(&tamaños, sizeof(tamaños), 1, file);
+  fread(&tamanos, sizeof(tamanos), 1, file);
+  uint8_t *ptra = &tamanos;
+  for(int i = 0; i < 5;  i++) {
+    int tmp = ptra[i*2];
+    ptra[i*2] = ptra[i*2+1];
+    ptra[i*2+1] = tmp;
+  }
+  uint16_t entry_offset;
+  fread(&entry_offset, sizeof(uint8_t), 2, file);
+  ptra = (uint8_t*) (&entry_offset);
+  int tmp = ptra[1];
+  ptra[1] = ptra[0];
+  ptra[0] = tmp;
 
-  int entry_offset;
-  fread(&entry_offset, sizeof(uint16_t), 1, file);
-  
-  if(tamaños.tam_code + tamaños.tam_const + tamaños.tam_data + tamaños.tam_extra + tamaños.tam_stack >= tam_memoria) {
+  if(tamanos.tam_code + tamanos.tam_const + tamanos.tam_data + tamanos.tam_extra + tamanos.tam_stack >= tam_memoria) {
     printf("Memoria insuficiente.\n");
     return false;
   }
 
   mv->mem = (uint8_t*) malloc(sizeof(uint8_t) * tam_memoria);
-  fread(&mv->mem[tamaños.tam_const], sizeof(uint8_t), tamaños.tam_code, file);
-  fread(&mv->mem[0], sizeof(uint8_t), tamaños.tam_const, file);
-  int tams[5] = {tamaños.tam_const, tamaños.tam_code, tamaños.tam_data, tamaños.tam_extra, tamaños.tam_stack};
+  fread(&mv->mem[tamanos.tam_const], sizeof(uint8_t), tamanos.tam_code, file);
+  fread(&mv->mem[0], sizeof(uint8_t), tamanos.tam_const, file);
+  //for(int i = 0; i < 105; i++){
+  //  printf("MEM[%d] : %c | %x \n", i, mv->mem[i], mv->mem[i]& 0x1F);
+ // }
+  int tams[5] = {tamanos.tam_const, tamanos.tam_code, tamanos.tam_data, tamanos.tam_extra, tamanos.tam_stack};
   int j = 0;
   int offset = 0;
   for(int i = 0; i < 5; i++) {
@@ -192,6 +216,7 @@ bool InicializarMVX(FILE* file, MV* mv, int tam_memoria) {
       j++;
     }
   }
+
   
   int aux = 0;
   if(tams[0] <= 0) {
@@ -202,7 +227,7 @@ bool InicializarMVX(FILE* file, MV* mv, int tam_memoria) {
   }
 
   for(int i = 0; i < 4; i++) {
-    if(tams[i] > 0) {
+    if(tams[i+1] > 0) {
       mv->regs[CS + i] = aux;
       mv->regs[CS + i] <<= 16;
       aux++; 
@@ -210,8 +235,11 @@ bool InicializarMVX(FILE* file, MV* mv, int tam_memoria) {
       mv->regs[CS + i] = -1;
     }
   }
-  mv->regs[SP] = mv->regs[SS] + tamaños.tam_stack; 
+  mv->regs[SP] = mv->regs[SS] + tamanos.tam_stack; 
+  printf("tamaño stack: %d", tamanos.tam_stack);
   mv->regs[IP] = mv->regs[CS] + entry_offset;
+  printf("CS: %8x\n", mv->regs[CS]);
+  printf("IP: %8x\n", mv->regs[IP]);
   mv->estado = EJECUTANDO;
 
   return true;
@@ -233,7 +261,7 @@ bool ValidarHeaderVMI(FILE* file) {
 
   bool id_ok = true;
   for(int i = 0; i < 5; i++) {
-    if(kHeaderID[i] != header.id[i]) {
+    if(kVMIHeaderID[i] != header.id[i]) {
       id_ok = false;
       break;
     }
@@ -244,7 +272,7 @@ bool ValidarHeaderVMI(FILE* file) {
     return false;
   }
 
-  if(kHeaderVersion != header.version){ 
+  if(kVMIHeaderVersion != header.version){ 
     printf("Header invalido. Version incorrecta. \n"); 
     return false;
   }
@@ -263,5 +291,11 @@ bool InicializarMVI(FILE* file, MV* mv) {
   fread(mv, sizeof(uint32_t), 8, file);  // leer segmentos
   fread(mv->mem, sizeof(uint8_t), tam_memoria, file); // leer memoria principal
   mv->estado = EJECUTANDO;
+  for(int i = 0; i < 16; i++) {
+    printf("[%d]: %8x \n", i, mv->regs[i]);
+
+  }
   return true;
+
+  
 }

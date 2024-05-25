@@ -1,15 +1,16 @@
 #include "disassembler.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 static const char* nombre_instrucciones [] = {
   "MOV", "ADD", "SUB", "SWAP", "MUL", "DIV", "COMP", "SHL", "SHR", "AND", "OR", "XOR", "RND", NULL, NULL, NULL,
-  "SYS", "JMP", "JZ", "JP", "JN", "JNZ", "JNP", "JNN", "LDL", "LDH", "NOT", NULL, NULL, NULL, NULL,
+  "SYS", "JMP", "JZ", "JP", "JN", "JNZ", "JNP", "JNN", "LDL", "LDH", "NOT", "PUSH", "POP", "CALL", "RET",
   "STOP" 
 };
 
 static const char* nombre_regs [] = {
-  "CS", "DS", "__RES1", "__RES2", "__RES3", "IP", "__RES4", "__RES5", "CC", "AC", "A", "B", "C", "D", "E", "F"
+  "CS", "DS", "ES", "SS", "KS", "IP", "SP", "BP", "CC", "AC", "A", "B", "C", "D", "E", "F"
 };
 
 static const char* tam_regs [] = {
@@ -22,7 +23,8 @@ void IntHex(int c);
 
 void MostrarInstruccion(MV mv, Instruccion instruccion) {
   int tam_instr = 1 + ((~instruccion.tipo_a)&3) + ((~instruccion.tipo_b)&3);
-  int dir = mv.regs[IP] - tam_instr;
+  int cod_seg = mv.regs[IP]>>16;
+  int dir = mv.segmentos[cod_seg].base + (mv.regs[IP]&0xFFFF) - tam_instr;
   printf("[");
   IntHex(dir);
   printf("] ");

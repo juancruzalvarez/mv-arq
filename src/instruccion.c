@@ -29,12 +29,17 @@ void JNN (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int 
 void LDL (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
 void LDH (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
 void NOT (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
+void PUSH (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
+void POP (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
+void RET (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
+void CALL (MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
+
 void STOP(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int operando_b);
 
 
 static Operacion operaciones[] = {
   MOV, ADD, SUB, SWAP, MUL, DIV, COMP, SHL, SHR, AND, OR, XOR, RND, NULL, NULL, NULL,
-  SYS, JMP, JZ, JP, JN, JNZ, JNP, JNN, LDL, LDH, PUSH, POP, CALL, RET, NULL,
+  SYS, JMP, JZ, JP, JN, JNZ, JNP, JNN, LDL, LDH, NOT, PUSH, POP, CALL, RET,
   STOP
 };
 
@@ -46,10 +51,12 @@ static int op_size[] = {
 };
 
 
-GenerarVMI(MV* mv) {
+void GenerarVMI(MV* mv) {
   FILE* archivo_vmi = fopen(mv->path_vmi, "wb");
-  fwrite("VMI24", 1, 5, archivo_vmi);
-  fwrite(2, 1, 1, archivo_vmi);
+  const char* id = "VMI24";
+  uint16_t version = 2;
+  fwrite(id, 1, 5, archivo_vmi);
+  fwrite(&version, 1, 1, archivo_vmi);
   fwrite(&mv->tam_memoria, 2, 1, archivo_vmi);
   fwrite(mv->regs, 4, 16, archivo_vmi);
   fwrite(mv->segmentos, 4, 8, archivo_vmi);
@@ -58,38 +65,50 @@ GenerarVMI(MV* mv) {
 }
 
 Instruccion LeerProximaInstruccion(MV* mv) {
-  int code_seg_id = (mv->regs[CS] >> 16)&0xFFFF;
   Instruccion ret;
-  int dir = mv->regs[IP];
+  printf("Leyendo instruccion\n");
+  int code_seg_id = (mv->regs[IP]>>16)&0xFFFF;
+  int dir = mv->segmentos[code_seg_id].base + (mv->regs[IP]&0xFFFF);
   if(dir >= mv->segmentos[code_seg_id].base + mv->segmentos[code_seg_id].size) {
     mv->estado = FINALIZADO;
     return ret;
   }
-  uint8_t instruccion = mv->mem[mv->regs[IP]++];
+ 
+  uint8_t instruccion = mv->mem[dir];
+  mv->regs[IP]++;
+  dir++;
   ret.cod_op = instruccion;
+   
   ret.operacion = instruccion & 0x1F;
   ret.tipo_a = (instruccion & 0x30) >> 4;
   ret.tipo_b = (instruccion & 0xC0) >> 6;
   ret.operando_a = 0;
   ret.operando_b = 0;
+  printf("Tipos: %d, %d\n", ret.tipo_a, ret.tipo_b);
+
   for(int i = 0; i < op_size[ret.tipo_b]; i++) {
-    ret.operando_b |= mv->mem[mv->regs[IP]++];
+    ret.operando_b |= mv->mem[dir];
     ret.operando_b <<= 8;
+    mv->regs[IP]++;
+    dir++;
   }
   if(ret.tipo_b != NINGUNO)
     ret.operando_b >>=8;
   for(int i = 0; i < op_size[ret.tipo_a]; i++) {
-    ret.operando_a |= mv->mem[mv->regs[IP]++];
+    ret.operando_a |= mv->mem[dir];
     ret.operando_a <<= 8;
+    mv->regs[IP]++;
+    dir++;
   }
   if(ret.tipo_a != NINGUNO)
     ret.operando_a >>=8;
+
   return ret;
 };
 
 void EjecutarInstruccion(MV* mv, Instruccion instruccion) {
   int i = instruccion.operacion;
-  if((i >=0x00 && i<= 0x0C) || (i>=0x10 && i<=0x1A) || (i==0x1F))
+  if((i >=0x00 && i<= 0x0C) || (i>=0x10 && i<=0x1f))
     operaciones[i](mv, instruccion.tipo_a, instruccion.tipo_b, instruccion.operando_a, instruccion.operando_b);
   else{
     mv->estado = ERR_INSTRUCCION_INVALIDA;
@@ -124,9 +143,12 @@ int GetRegistro(MV* mv, Registros reg, TipoReg tipo){
 
 //Devuelve la direccion fisica apuntada.
 int ResolverDireccion(MV* mv, int puntero, int offset) {
+  printf("Puntero: %8x \n", puntero);
   int cod_seg = (puntero&0xFFFF0000) >> 16;
+  printf("cod_seg: %d", cod_seg);
   int offset_puntero = puntero&0xFFFF;
   Segmento seg = mv->segmentos[cod_seg];
+  printf("base: %d, size:%d", seg.base, seg.size);
   if(offset_puntero + offset >= seg.size) {
     mv->estado = ERR_SEGMENTACION;
     return 0;
@@ -573,22 +595,20 @@ void PUSH(MV* mv, TipoOperando tipo_a, TipoOperando tipo_b, int operando_a, int 
 
     PUSH AX ;decrementa en uno el valor de SP y almacena en la posici�n apuntada por este registro
     el valor de AX.*/
-    int aux,tamSS,value;
-    aux = mv->regs[SS] >>16 & 0x0000FFFF;
-   // tamSS=TDS[aux]>>16 & 0x0000FFFF;
-    tamSS = mv->segmentos[aux].size;
-    //registros[SP].valor=registros[SP].valor-4;
+    printf("Adele!\n");
+    printf("SP: %8x, SS: %8x \n", mv->regs[SP], mv->regs[SS]);
+    int value;
     mv->regs[SP] -= 4;
-    if(mv->regs[SP]<tamSS){
-
-        mv->estado = ERR_STACK_OVERFLOW;
-
+    if(mv->regs[SP] < mv->regs[SS]){
+      mv->estado = ERR_STACK_OVERFLOW;
     }
     else{
+      printf("hello its me \n");
         value = GetValor(mv,tipo_b,operando_b);
-        SetValor(mv,MEMORIA,mv->regs[SP],value);
+              printf("i been wondering if after all this years %d \n", value);
 
-
+        SetValor(mv, MEMORIA, mv->regs[SP], value);
+              printf("you would like to meet \n");
 
     }
 }
